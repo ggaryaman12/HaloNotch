@@ -39,5 +39,42 @@ final class AppEnvironment {
             DispatchQueue.main.async { self?.notch.present(.claude) }
         }
         claude.start()
+
+        // Briefly pop the media glance whenever a new track starts.
+        observeTrackChanges()
+    }
+
+    private var lastPoppedTrack: String?
+
+    /// Observe the now-playing title and pop a short media glance on each new track
+    /// (including the first). Re-registers itself after every change.
+    private func observeTrackChanges() {
+        withObservationTracking {
+            _ = media.nowPlaying?.title
+        } onChange: { [weak self] in
+            DispatchQueue.main.async {
+                self?.handleTrackChange()
+                self?.observeTrackChanges()
+            }
+        }
+    }
+
+    private func handleTrackChange() {
+        guard preferences.mediaEnabled,
+              let title = media.nowPlaying?.title, !title.isEmpty,
+              title != lastPoppedTrack else { return }
+        lastPoppedTrack = title
+        // Don't steal the notch while Claude is waiting on the user.
+        guard claude.status != .waiting else { return }
+
+        notch.present(.media)
+        notch.pinnedUntil = Date().addingTimeInterval(3.5)
+        let token = title
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.7) { [weak self] in
+            guard let self, self.lastPoppedTrack == token else { return }   // newer track took over
+            if self.notch.state == .open && self.notch.selectedTab == .media {
+                self.notch.send(.dismissed)
+            }
+        }
     }
 }

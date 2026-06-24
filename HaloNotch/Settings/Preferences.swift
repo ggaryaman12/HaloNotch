@@ -39,7 +39,7 @@ final class Preferences {
     init() {
         defaults.register(defaults: [
             "mediaEnabled": true, "calendarEnabled": true, "shelfEnabled": true,
-            "batteryEnabled": true, "hudEnabled": true, "demoMediaFallback": true,
+            "batteryEnabled": true, "hudEnabled": true, "demoMediaFallback": false,
             "ambientOnIdle": false,
             "accentHex": "#6673F2", "threeDIntensity": ThreeDIntensity.balanced.rawValue,
         ])

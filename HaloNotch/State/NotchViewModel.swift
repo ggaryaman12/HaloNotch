@@ -69,6 +69,9 @@ final class NotchViewModel {
     /// Same idea as `answerRects` but for the hover-strip transport controls.
     var mediaRects: [MediaButton: CGRect] = [:]
 
+    /// Join-button rects for calendar events with a meeting link, keyed by event id.
+    var joinRects: [String: CGRect] = [:]
+
     /// Force the notch open on a given tab (used when Claude needs attention).
     func present(_ tab: Tab) {
         selectedTab = tab

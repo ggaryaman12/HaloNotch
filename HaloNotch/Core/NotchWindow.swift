@@ -130,6 +130,13 @@ final class NotchWindow: NSPanel {
                 answerSelected(index: hit.key)
                 return
             }
+            // Calendar "Join" → open the meeting link from any screen.
+            if let hit = env.notch.joinRects.first(where: { $0.value.contains(local) }),
+               let url = env.calendar.upcoming.first(where: { $0.id == hit.key })?.meetLink {
+                NSWorkspace.shared.open(url)
+                env.notch.send(.dismissed)
+                return
+            }
             if !notchRect(for: state).contains(loc) { env.notch.send(.dismissed) }
             return
         }

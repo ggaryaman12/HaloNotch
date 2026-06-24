@@ -1,6 +1,17 @@
 import SwiftUI
 
-/// Expanded calendar module: next events with countdowns, or a permission prompt.
+/// Collects calendar "Join" button frames (window-local, top-left), keyed by event id,
+/// so NotchWindow's global mouse monitor can open the meeting link on click (SwiftUI
+/// Buttons can't receive clicks while the panel is intentionally non-key).
+struct JoinRectKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+/// Expanded calendar module: next events with countdowns and one-tap Join for any
+/// event that has a Google Meet / Zoom / Teams link, or a permission prompt.
 struct CalendarView: View {
     @Environment(AppEnvironment.self) private var env
 
@@ -13,16 +24,32 @@ struct CalendarView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(env.calendar.upcoming) { event in
-                            HStack {
+                            HStack(spacing: 6) {
                                 Circle().fill(.white.opacity(0.5)).frame(width: 6, height: 6)
                                 Text(event.title).font(Theme.Typography.body).lineLimit(1)
-                                Spacer()
+                                Spacer(minLength: 6)
+
+                                if event.meetLink != nil {
+                                    Text("Join")
+                                        .font(Theme.Typography.caption.weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 9).padding(.vertical, 3)
+                                        .background(Capsule().fill(Theme.Palette.good.opacity(0.9)))
+                                        .background(GeometryReader { g in
+                                            Color.clear.preference(key: JoinRectKey.self,
+                                                                   value: [event.id: g.frame(in: .global)])
+                                        })
+                                }
+
                                 Text(event.isAllDay ? "all day" : event.countdown)
                                     .font(Theme.Typography.caption)
                                     .foregroundStyle(Theme.Palette.textSecondary)
                             }
                         }
                         Spacer(minLength: 0)
+                    }
+                    .onPreferenceChange(JoinRectKey.self) { rects in
+                        env.notch.joinRects = rects
                     }
                 }
             case .denied:
