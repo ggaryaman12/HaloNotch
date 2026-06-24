@@ -13,6 +13,7 @@ final class ClaudeMonitor {
     struct Question: Equatable {
         var text: String
         var options: [String]   // empty => free-form / yes-no
+        var isPermission = false // a tool-permission prompt (Approve=Enter / Reject=Esc)
     }
 
     private(set) var status: Status = .idle
@@ -101,6 +102,11 @@ final class ClaudeMonitor {
                     let text = first["question"] as? String ?? "Claude asked a question"
                     let opts = (first["options"] as? [[String: Any]])?.compactMap { $0["label"] as? String } ?? []
                     signalQuestion = Question(text: text, options: opts)
+                } else if event == "Notification" {
+                    // A Notification (e.g. a tool-permission request) has no per-option
+                    // payload — offer Approve / Reject straight from the signal so it's
+                    // answerable from the notch without waiting on the transcript.
+                    signalQuestion = Question(text: attentionMessage, options: ["Approve", "Reject"], isPermission: true)
                 }
                 status = .waiting
                 waitingHold = Date().addingTimeInterval(45)
@@ -221,8 +227,9 @@ final class ClaudeMonitor {
             // flushed the tool_use line yet — show the buttons now.
             pendingQuestion = sq
         } else if status == .waiting && pending {
-            // A tool is waiting on your permission — show the real action + options.
-            pendingQuestion = Question(text: "Allow \(lastTool)?", options: ["Yes", "Always", "No"])
+            // A tool is waiting on your permission — Approve commits the default (Yes),
+            // Reject sends Escape, so it works whatever the picker's option layout is.
+            pendingQuestion = Question(text: "Allow \(lastTool)?", options: ["Approve", "Reject"], isPermission: true)
         } else {
             // No real question/action we can answer. Don't invent Yes/No buttons; the
             // attentionMessage (if any) is shown as text only.

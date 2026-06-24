@@ -84,6 +84,34 @@ enum AnswerSender {
         }
     }
 
+    /// Approve a permission prompt: commit the default-highlighted option (Yes) with
+    /// Return. The VS Code picker can want two Enters (lock, then submit).
+    @discardableResult
+    static func approve(source: ClaudeMonitor.Source) -> Bool {
+        withActivatedApp(source) {
+            pressReturn()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { pressReturn() }
+        }
+    }
+
+    /// Reject a permission prompt with Escape — robust to however many options the
+    /// picker shows (the "No / tell Claude" choice is bound to Esc).
+    @discardableResult
+    static func reject(source: ClaudeMonitor.Source) -> Bool {
+        withActivatedApp(source) { pressKey(0x35) /* Escape */ }
+    }
+
+    /// Bring the owning app forward, wait for focus to settle, then run `body` (the key
+    /// synthesis). Returns false if the app isn't running.
+    @discardableResult
+    private static func withActivatedApp(_ source: ClaudeMonitor.Source, _ body: @escaping () -> Void) -> Bool {
+        let bundles = (source == .editor) ? editorBundles : terminalBundles
+        guard let app = activate(bundles) else { return false }
+        let delay = app.isActive ? 0.08 : 0.25
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: body)
+        return true
+    }
+
     /// Activate the first running app from the list. Returns it (or nil if none run).
     private static func activate(_ bundles: [String]) -> NSRunningApplication? {
         // Prefer the one already frontmost (avoids an unnecessary app switch).

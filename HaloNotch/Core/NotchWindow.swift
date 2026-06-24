@@ -151,8 +151,14 @@ final class NotchWindow: NSPanel {
 
     private func answerSelected(index: Int) {
         guard let q = env.claude.pendingQuestion else { return }
-        let opts = q.options.isEmpty ? ["Yes", "No"] : q.options
-        _ = AnswerSender.sendChoice(index: index, options: opts, source: env.claude.source)
+        if q.isPermission {
+            // Two chips: 0 = Approve, 1 = Reject.
+            if index == 0 { AnswerSender.approve(source: env.claude.source) }
+            else { AnswerSender.reject(source: env.claude.source) }
+        } else {
+            let opts = q.options.isEmpty ? ["Yes", "No"] : q.options
+            _ = AnswerSender.sendChoice(index: index, options: opts, source: env.claude.source)
+        }
         env.notch.answerRects = [:]
         env.notch.send(.dismissed)
     }
