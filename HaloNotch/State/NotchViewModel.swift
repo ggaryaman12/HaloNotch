@@ -72,6 +72,12 @@ final class NotchViewModel {
     /// Join-button rects for calendar events with a meeting link, keyed by event id.
     var joinRects: [String: CGRect] = [:]
 
+    /// Window-local (top-left) rect of the media progress bar, published by MediaView and
+    /// hit-tested by NotchWindow so scrubbing works on the non-key panel.
+    var progressBarRect: CGRect = .zero
+    /// Fraction (0…1) being dragged on the notch scrubber, or nil when not scrubbing.
+    var scrubFraction: Double?
+
     /// Force the notch open on a given tab (used when Claude needs attention).
     func present(_ tab: Tab) {
         selectedTab = tab

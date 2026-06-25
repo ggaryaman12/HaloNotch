@@ -8,6 +8,9 @@ struct AmbientView: View {
     @Environment(AppEnvironment.self) private var env
     let onClose: () -> Void
 
+    /// Fraction (0…1) being dragged on the scrubber, or nil when not scrubbing.
+    @State private var scrub: Double?
+
     // ===== Tunable ambient dimensions (edit these) =====
     private let artWithLyrics: CGFloat = 320
     private let artNoLyrics: CGFloat = 400
@@ -130,14 +133,27 @@ struct AmbientView: View {
 
             if let np {
                 GeometryReader { geo in
+                    let frac = scrub ?? np.progress
                     ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.2))
+                        Capsule().fill(.white.opacity(0.2)).frame(height: 5)
                         Capsule().fill(.white)
-                            .frame(width: max(0, geo.size.width * np.progress))
-                            .animation(.linear(duration: 1), value: np.progress)
+                            .frame(width: max(0, geo.size.width * frac), height: 5)
+                            .animation(scrub == nil ? .linear(duration: 1) : nil, value: frac)
+                        Circle().fill(.white)
+                            .frame(width: scrub == nil ? 0 : 15, height: 15)
+                            .offset(x: geo.size.width * frac - (scrub == nil ? 0 : 7.5))
                     }
+                    .frame(height: 15)
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0)
+                        .onChanged { v in scrub = min(max(v.location.x / geo.size.width, 0), 1) }
+                        .onEnded { v in
+                            let f = min(max(v.location.x / geo.size.width, 0), 1)
+                            if np.duration > 0 { env.media.seek(to: f * np.duration) }
+                            scrub = nil
+                        })
                 }
-                .frame(width: art, height: 5)
+                .frame(width: art, height: 15)
             }
 
             HStack(spacing: 40) {

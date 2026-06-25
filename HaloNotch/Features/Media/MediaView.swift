@@ -87,14 +87,22 @@ struct MediaView: View {
     private func progressBar(_ np: NowPlaying) -> some View {
         VStack(spacing: 3) {
             GeometryReader { geo in
+                let frac = env.notch.scrubFraction ?? np.progress
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.18))
+                    Capsule().fill(.white.opacity(0.18)).frame(height: 4)
                     Capsule().fill(.white)
-                        .frame(width: max(0, geo.size.width * np.progress))
-                        .animation(.linear(duration: 1), value: np.progress)
+                        .frame(width: max(0, geo.size.width * frac), height: 4)
+                        .animation(env.notch.scrubFraction == nil ? .linear(duration: 1) : nil, value: frac)
+                    Circle().fill(.white)
+                        .frame(width: env.notch.scrubFraction == nil ? 0 : 11, height: 11)
+                        .offset(x: geo.size.width * frac - (env.notch.scrubFraction == nil ? 0 : 5.5))
                 }
+                // Publish the bar's window-local rect so NotchWindow can hit-test drags
+                // (the panel isn't key, so a SwiftUI gesture can't drive the scrub).
+                .onChange(of: geo.frame(in: .global)) { _, r in env.notch.progressBarRect = r }
+                .onAppear { env.notch.progressBarRect = geo.frame(in: .global) }
             }
-            .frame(height: 4)
+            .frame(height: 11)
             HStack {
                 Text(timeString(np.elapsed)).font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Palette.textSecondary)

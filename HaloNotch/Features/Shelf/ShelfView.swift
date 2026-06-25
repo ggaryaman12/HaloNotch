@@ -67,7 +67,20 @@ private struct ChipView: View {
             Button("Reveal in Finder") { env.shelf.revealInFinder(item) }
             Button("Share via AirDrop") { env.shelf.airDrop(item) }
             Divider()
-            Button("Remove", role: .destructive) { env.shelf.remove(item) }
+            Button("Remove", role: .destructive) { removeItem() }
         }
+    }
+
+    /// Remove the file; if that empties the shelf, fall back to the first non-shelf tab so
+    /// the notch doesn't sit on an empty shelf.
+    private func removeItem() {
+        env.shelf.remove(item)
+        if env.shelf.items.isEmpty { env.notch.select(fallbackTab) }
+    }
+
+    private var fallbackTab: NotchViewModel.Tab {
+        if env.preferences.mediaEnabled { return .media }
+        if env.preferences.calendarEnabled { return .calendar }
+        return .claude
     }
 }

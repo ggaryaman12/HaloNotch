@@ -127,6 +127,10 @@ final class MediaRemoteController: MediaController {
         _ = sendCommand?(5, nil) // kMRPreviousTrack
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.tick() }
     }
+    func seek(to seconds: TimeInterval) {
+        // Legacy path (unused while the adapter is active): reflect locally only.
+        if var np = nowPlaying { np.elapsed = min(max(seconds, 0), np.duration); nowPlaying = np }
+    }
 
     // MARK: Demo artwork
 

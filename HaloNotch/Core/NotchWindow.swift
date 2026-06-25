@@ -81,10 +81,43 @@ final class NotchWindow: NSPanel {
     private func installMouseMonitors() {
         let moved: (NSEvent) -> Void = { [weak self] _ in self?.evaluateCursor() }
         let down: (NSEvent) -> Void = { [weak self] _ in self?.handleClick() }
+        let dragged: (NSEvent) -> Void = { [weak self] _ in self?.handleDrag() }
+        let up: (NSEvent) -> Void = { [weak self] _ in self?.handleMouseUp() }
         if let m = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved], handler: moved) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved], handler: { moved($0); return $0 }) { monitors.append(m) }
         if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown], handler: down) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown], handler: { down($0); return $0 }) { monitors.append(m) }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDragged], handler: dragged) { monitors.append(m) }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged], handler: { dragged($0); return $0 }) { monitors.append(m) }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp], handler: up) { monitors.append(m) }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp], handler: { up($0); return $0 }) { monitors.append(m) }
+    }
+
+    // MARK: Scrubbing (media progress bar on the non-key panel)
+
+    private var scrubbing = false
+
+    /// Fraction (0…1) of the published progress-bar rect at a window-local point.
+    private func scrubFraction(at local: CGPoint) -> Double {
+        let r = env.notch.progressBarRect
+        guard r.width > 1 else { return 0 }
+        return min(max((local.x - r.minX) / r.width, 0), 1)
+    }
+
+    private func handleDrag() {
+        guard scrubbing else { return }
+        let loc = NSEvent.mouseLocation
+        let local = CGPoint(x: loc.x - frame.minX, y: frame.maxY - loc.y)
+        env.notch.scrubFraction = scrubFraction(at: local)
+        env.notch.pinnedUntil = Date().addingTimeInterval(30)
+    }
+
+    private func handleMouseUp() {
+        guard scrubbing else { return }
+        scrubbing = false
+        let f = env.notch.scrubFraction ?? 0
+        env.notch.scrubFraction = nil
+        if let dur = env.media.nowPlaying?.duration, dur > 0 { env.media.seek(to: f * dur) }
     }
 
     private func evaluateCursor() {
@@ -121,6 +154,15 @@ final class NotchWindow: NSPanel {
         let local = CGPoint(x: loc.x - frame.minX, y: frame.maxY - loc.y)
 
         if state == .open {
+            // Grab the scrubber if the press lands on the media progress bar (padded for
+            // an easy target). Tap = seek there; drag = scrub. Handled before dismissal.
+            if env.notch.selectedTab == .media,
+               env.notch.progressBarRect.insetBy(dx: -8, dy: -10).contains(local) {
+                scrubbing = true
+                env.notch.scrubFraction = scrubFraction(at: local)
+                env.notch.pinnedUntil = Date().addingTimeInterval(30)
+                return
+            }
             // Hit-test the answer chips ourselves — fires even when the panel isn't key
             // (the SwiftUI Button path can't).
             if ProcessInfo.processInfo.environment["HALO_DEBUG"] != nil {

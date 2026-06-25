@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import CoreGraphics
+import Carbon.HIToolbox
 
 /// Owns the app lifecycle: accessory activation policy (no Dock icon), the menu-bar
 /// status item, the global `AppEnvironment`, and the borderless notch panel.
@@ -9,11 +10,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem?
     private var notchWindow: NotchWindow?
+    private var dropCatcher: DropCatcherWindow?
     private var onboardingWindow: NSWindow?
     private var ambientWindow: NSWindow?
     private var ambientEscMonitor: Any?
     private var idleTimer: Timer?
     private var ambientAutoShown = false
+    private var hotKeyRef: EventHotKeyRef?
+    private var hotKeyHandler: EventHandlerRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Agent app: live in the menu bar, not the Dock.
@@ -32,6 +36,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         startIdleMonitor()
+        installAmbientHotkey()
+    }
+
+    /// Global ⌘⌥A toggles the ambient screen from anywhere. Uses a Carbon system hotkey
+    /// (RegisterEventHotKey) — works for a background/accessory app without Input
+    /// Monitoring/Accessibility, unlike NSEvent global key monitors.
+    private func installAmbientHotkey() {
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                 eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(),
+            { _, _, userData -> OSStatus in
+                guard let userData else { return noErr }
+                let me = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
+                DispatchQueue.main.async { me.toggleAmbient() }
+                return noErr
+            },
+            1, &spec, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
+
+        let hotKeyID = EventHotKeyID(signature: OSType(0x484C4E54) /* 'HLNT' */, id: 1)
+        RegisterEventHotKey(UInt32(kVK_ANSI_A), UInt32(cmdKey | optionKey),
+                            hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
     }
 
     /// Auto-shows the ambient screen after ~2 min of no input (a screensaver-style
@@ -59,6 +84,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.placeUnderNotch()
         window.orderFrontRegardless()
         notchWindow = window
+
+        // Drag-only catcher, ordered above the notch so it wins file-drag hit-testing.
+        let catcher = DropCatcherWindow(env: env)
+        catcher.orderFrontRegardless()
+        dropCatcher = catcher
     }
 
     // MARK: Menu bar
@@ -70,12 +100,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "HaloNotch", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Ambient Screen", action: #selector(toggleAmbient), keyEquivalent: "a")
+        let ambientItem = NSMenuItem(title: "Ambient Screen", action: #selector(toggleAmbient), keyEquivalent: "a")
+        ambientItem.keyEquivalentModifierMask = [.command, .option]
+        menu.addItem(ambientItem)
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(withTitle: "Replay Onboarding", action: #selector(showOnboarding), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit HaloNotch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        for menuItem in menu.items where menuItem.action != nil { menuItem.target = self }
+        let quitItem = NSMenuItem(title: "Quit HaloNotch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quitItem.target = NSApp   // terminate lives on NSApplication, not this delegate
+        menu.addItem(quitItem)
+        // Point the rest at self; Quit keeps its NSApp target (else auto-enable disables it).
+        for menuItem in menu.items where menuItem.action != nil && menuItem !== quitItem {
+            menuItem.target = self
+        }
         item.menu = menu
         statusItem = item
     }

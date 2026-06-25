@@ -33,6 +33,19 @@ final class ClaudeMonitor {
         .appendingPathComponent(".claude/projects")
     private let signalURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".claude/halonotch/signal.json")
+    /// Written by a PreToolUse[Bash] hook, deleted by PostToolUse[Bash]. If it lingers
+    /// past `bashPermissionDelay`, the command is blocked on the user → pop Approve/Reject.
+    private let pendingBashURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".claude/halonotch/pending.json")
+    private let bashPermissionDelay: TimeInterval = 2.5
+    private var bashPromptActive = false
+    /// Long-running commands that legitimately sit "pending" while running — never treat
+    /// these as awaiting permission (avoids false Approve/Reject pops during builds etc.).
+    private let longRunningHints = [
+        "xcodebuild", "npm ", "yarn", "pnpm", "webpack", "vite", "gradle", "./gradlew",
+        "sleep ", "serve", " dev", "watch", "tail -f", "ping ", "docker", "brew ",
+        "node ", "python ", "python3 ", "bundle exec", "rails ", "make ", "cargo ",
+    ]
 
     private var pollTimer: Timer?
     private var lastSignalDate: Date?
@@ -51,6 +64,7 @@ final class ClaudeMonitor {
 
     private func tick() {
         checkSignal()
+        checkPendingBash()
         guard let session = newestTranscript() else {
             debugLog("tick: NO active transcript (all idle >10m?)")
             return
@@ -71,6 +85,67 @@ final class ClaudeMonitor {
         guard ProcessInfo.processInfo.environment["HALO_DEBUG"] != nil, s != lastDebug else { return }
         lastDebug = s
         FileHandle.standardError.write(("claudeMonitor: " + s + "\n").data(using: .utf8)!)
+    }
+
+    /// Detect a Bash command that's been blocked awaiting the user's permission: the
+    /// PreToolUse hook left `pending.json` and PostToolUse hasn't removed it within a
+    /// short delay. Long-running commands are excluded so a running build never looks
+    /// like a permission prompt. (Notification rarely fires here, so this is the only
+    /// reliable per-command signal.)
+    private func checkPendingBash() {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: pendingBashURL.path),
+              let mod = attrs[.modificationDate] as? Date else {
+            if bashPromptActive {            // command ran / was answered → clear the pop
+                bashPromptActive = false
+                signalQuestion = nil
+                waitingHold = .distantPast
+            }
+            return
+        }
+        // Still pending but not long enough — probably just a fast, auto-approved run.
+        guard -mod.timeIntervalSinceNow >= bashPermissionDelay else { return }
+
+        guard let data = try? Data(contentsOf: pendingBashURL),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        let cmd = ((obj["tool_input"] as? [String: Any])?["command"] as? String) ?? "command"
+        if longRunningHints.contains(where: { cmd.lowercased().contains($0) }) { return }
+
+        // The decisive check: a command awaiting permission hasn't been executed yet, so
+        // no matching process exists. If it IS running, this is a normal long command —
+        // not a prompt — so stay quiet. (On any uncertainty we assume "running" and stay
+        // quiet, so we never disturb a real run.)
+        if commandIsRunning(cmd) { return }
+
+        signalQuestion = Question(text: "Allow: \(cmd.prefix(70))", options: ["Approve", "Reject"], isPermission: true)
+        status = .waiting
+        waitingHold = Date().addingTimeInterval(120)
+        if !bashPromptActive {
+            bashPromptActive = true
+            onAttention?()
+        }
+    }
+
+    /// True if a process whose command line contains this command appears in `ps`. Used
+    /// to tell a running command (process present) from one blocked on permission (not
+    /// executed yet). Errs toward `true` (assume running → don't pop) so a real run is
+    /// never disturbed.
+    private func commandIsRunning(_ cmd: String) -> Bool {
+        // Normalise whitespace so multi-line commands match the single-line ps output.
+        func norm(_ s: String) -> String {
+            s.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        }
+        let needle = String(norm(cmd).prefix(45))
+        guard needle.count >= 8 else { return true }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/ps")
+        p.arguments = ["-axo", "command="]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return true }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return norm(String(decoding: data, as: UTF8.self)).contains(needle)
     }
 
     // MARK: Hook signal

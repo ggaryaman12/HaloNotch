@@ -10,6 +10,10 @@ protocol MediaController: AnyObject {
     func playPause()
     func next()
     func previous()
+    /// Jump playback to an absolute position (seconds). Updates `nowPlaying.elapsed`
+    /// immediately so the slider and lyrics track the new spot without waiting for the
+    /// next snapshot.
+    func seek(to seconds: TimeInterval)
 }
 
 import Observation
@@ -29,4 +33,8 @@ final class MockMediaController: MediaController {
     func playPause() { isPlaying.toggle() }
     func next() {}
     func previous() {}
+    func seek(to seconds: TimeInterval) {
+        guard var np = nowPlaying else { return }
+        np.elapsed = min(max(seconds, 0), np.duration); nowPlaying = np
+    }
 }

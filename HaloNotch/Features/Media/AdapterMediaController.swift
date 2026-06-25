@@ -156,6 +156,27 @@ final class AdapterMediaController: MediaController {
     func next()      { if usingDemo { resetDemoElapsed() } else { send(4) } }
     func previous()  { if !usingDemo { send(5) } }
 
+    /// Seek via the adapter's `seek <microseconds>` verb. Optimistically jumps the local
+    /// position and re-anchors so the progress timer (and lyrics, which read elapsed)
+    /// continue smoothly from the new spot instead of snapping back for ~0.25s.
+    func seek(to seconds: TimeInterval) {
+        let target = max(0, seconds)
+        if var np = nowPlaying {
+            let clamped = np.duration > 0 ? min(target, np.duration) : target
+            np.elapsed = clamped
+            nowPlaying = np
+            baseElapsed = clamped
+            anchor = Date()
+        }
+        guard !usingDemo, let plURL, let frameworkURL else { return }
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        proc.arguments = [plURL.path, frameworkURL.path, "seek", String(Int(target * 1_000_000))]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+    }
+
     // MARK: Demo fallback
 
     private func startDemoIfNeeded() {
